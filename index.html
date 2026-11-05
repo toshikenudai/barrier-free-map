@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>バリアフリーマップ</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121830; --fg:#e7ecff; --muted:#9fb0ff; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "ヒラギノ角ゴ ProN", "Hiragino Kaku Gothic ProN", "游ゴシック体", YuGothic, "Yu Gothic", Meiryo, sans-serif; }
+    #app { display:grid; grid-template-columns: 320px minmax(0,1fr); grid-template-rows: 56px 1fr; height:100%; }
+    header { grid-column:1/3; display:flex; align-items:center; gap:.75rem; padding:0 1rem; background:linear-gradient(90deg, #0b1020, #172040); border-bottom:1px solid #263056; }
+    header h1 { font-size:1rem; margin:0; letter-spacing:.02em; }
+    header .actions{ margin-left:auto; display:flex; gap:.5rem; }
+    .btn { background:#1b254d; border:1px solid #2c3a6d; color:var(--fg); padding:.5rem .75rem; border-radius:.75rem; cursor:pointer; font-size:.9rem; }
+    .btn:hover{ filter:brightness(1.1); }
+    aside { grid-column:1; grid-row:2; min-width:0; background:var(--panel); border-right:1px solid #263056; overflow:auto; }
+    .panel { padding:1rem; }
+    .panel h2{ font-size:1rem; margin:.25rem 0 .5rem; opacity:.9 }
+    .panel .tip{ font-size:.85rem; color:var(--muted); }
+    .search { display:flex; gap:.5rem; margin:.5rem 0 1rem; }
+    .search input{ flex:1; padding:.5rem .75rem; border-radius:.5rem; border:1px solid #2c3a6d; background:#0f1630; color:var(--fg); }
+    .list{ display:flex; flex-direction:column; gap:.5rem; }
+    .card{ background:#0f1630; border:1px solid #263056; border-radius:.75rem; padding:.75rem; cursor:pointer; }
+    .card:hover{ border-color:#3b4ea1; }
+    .card h3{ margin:.1rem 0 .25rem; font-size:.95rem; }
+    .card p{ margin:0; font-size:.85rem; color:#b8c6ff; }
+    #map { grid-column:2; grid-row:2; min-width:0; min-height:0; height:100%; width:100%; }
+    .popup { max-width: 300px; }
+    .popup h3 { margin:.25rem 0; font-size:1rem; }
+    .popup .desc { font-size:.9rem; color:#223; background:#eef3ff; padding:.5rem .6rem; border-radius:.5rem; }
+    .legend { position:absolute; bottom:12px; right:12px; background:#0f1630; color:var(--fg); border:1px solid #263056; border-radius:.75rem; padding:.5rem .75rem; font-size:.85rem; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+    .hidden { display:none; }
+    #app.list-closed { grid-template-columns: 0 minmax(0,1fr); }
+    #app.list-closed #sidebar { display:none; }
+    header .actions { overflow-x:auto; white-space:nowrap; }
+    @media(max-width:760px){#app{grid-template-columns:230px minmax(0,1fr)} .panel{padding:.65rem} header{padding:0 .5rem} .btn{font-size:.75rem;padding:.4rem .5rem}}
+    #banner { position: fixed; z-index: 9999; left: 12px; bottom: 12px; background:#18224a; color:#fff; border:1px solid #2d3c78; border-radius:.75rem; padding:.6rem .8rem; font-size:.85rem; display:none; max-width: min(520px, 90vw); box-shadow:0 8px 24px rgba(0,0,0,.35); }
+    #banner.error { background:#3a1420; border-color:#7a2341; }
+    #banner strong { display:block; margin-bottom:.25rem; }
+    #banner code { background:#00000033; padding:.1rem .3rem; border-radius:.35rem; }
+    #lightbox { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.85); z-index: 10000; }
+    #lightbox.show { display: flex; }
+    #lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.6); cursor: zoom-out; }
+
+    /* 画像・削除UI */
+    .imgWrap{ position: relative; }
+    .popup img { width:100%; height:auto; border-radius:.5rem; display:block; cursor: zoom-in; }
+    .imgGrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-bottom:.5rem; }
+    .imgDel{ position:absolute; top:6px; right:6px; background:rgba(20,20,30,.85); color:#fff; border:1px solid #fff3; border-radius:.5rem; padding:.2rem .45rem; font-size:.8rem; line-height:1; cursor:pointer; display:flex; align-items:center; gap:.25rem; }
+    .imgDel:hover{ filter:brightness(1.2); }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>バリアフリーマップ</h1>
+      <div class="actions">
+        <button class="btn" id="fitBtn">全ポイント表示</button>
+        <button class="btn" id="toggleListBtn">リスト表示 切替</button>
+        <button class="btn" id="addPhotosBtn">写真追加</button>
+        <button class="btn" id="saveBtn">SPOTS保存</button>
+        <button class="btn" id="loadBtn">読込</button>
+        <button class="btn" id="exportJsonBtn">JSON出力</button>
+        <button class="btn" id="exportStandaloneBtn">共有用HTML出力</button>
+        <button class="btn" id="publishBtn">公開に反映（GitHub）</button>
+      </div>
+    </header>
+    <aside id="sidebar">
+      <div class="panel">
+        <h2>地点リスト</h2>
+        <div class="tip">ピンを押すと写真と説明が表示されます（画像クリックで拡大）。</div>
+        <div class="search">
+          <input id="searchBox" placeholder="キーワード検索（例：スロープ, 段差, 名称)"/>
+        </div>
+        <div class="list" id="spotList"></div>
+      </div>
+    </aside>
+    <div id="map"></div>
+  </div>
+
+  <div class="legend">移動：ドラッグ／拡大縮小：ホイール／表示：ピンをクリック</div>
+  <div id="banner"></div>
+  <div id="lightbox"><img id="lightboxImg" alt="preview"></div>
+
+  <script>
+    'use strict';
+    // 近接マーカーの自動クラスタリングを無効化するフラグ（必要なら true に）
+    const USE_CLUSTER = false;
+    const CDN = { leaflet:{css:['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'], js:['https://unpkg.com/leaflet@1.9.4/dist/leaflet.js']}, markercluster:{css:['https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css','https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css'], js:['https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js']}, geocoder:{css:['https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css'], js:['https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js']}, exifr:{js:['https://unpkg.com/exifr@7.1.3/dist/full.umd.js']} };
+
+    // === エスケープ & バナー ===
+    function esc(x){ return String(x==null? '': x).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+    function escAttr(x){ // 属性値用：" ' も含めてエスケープ
+      return String(x==null? '': x).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+
+    const bannerEl = document.getElementById('banner');
+    function showBannerText(text,isError=false){ bannerEl.className=isError?'error':''; bannerEl.textContent = String(text); bannerEl.style.display='block'; setTimeout(()=>bannerEl.style.display='none', isError?8000:4000); }
+    function showBannerLink(prefix,url,isError=false){ bannerEl.className=isError?'error':''; bannerEl.textContent=''; const strong=document.createElement('strong'); strong.textContent=prefix; bannerEl.appendChild(strong); const a=document.createElement('a'); a.href=url; a.target='_blank'; a.rel='noopener noreferrer'; a.style.textDecoration='underline'; a.textContent=url; bannerEl.appendChild(a); bannerEl.style.display='block'; setTimeout(()=>bannerEl.style.display='none', 8000); }
+
+    function loadScriptSeq(urls){return new Promise((resolve,reject)=>{let i=0; const next=()=>{if(i>=urls.length) return reject(new Error('All script URLs failed.')); const src=urls[i++]; const s=document.createElement('script'); s.src=src; s.async=true; s.crossOrigin='anonymous'; s.onload=()=>resolve(src); s.onerror = () => { console.warn('[loader] fail',src); s.remove(); next(); }; document.head.appendChild(s);}; next();});}
+    function loadCssAll(urls){urls.forEach(h=>{const l=document.createElement('link'); l.rel='stylesheet'; l.href=h; l.crossOrigin='anonymous'; document.head.appendChild(l);});}
+    async function loadExternalLibs(){ loadCssAll(CDN.leaflet.css); await loadScriptSeq(CDN.leaflet.js); if (USE_CLUSTER) { loadCssAll(CDN.markercluster.css); await loadScriptSeq(CDN.markercluster.js); } loadCssAll(CDN.geocoder.css); await loadScriptSeq(CDN.geocoder.js); await loadScriptSeq(CDN.exifr.js); }
+
+    // 安全なリンクかを判定（javascript: 等を弾く）
+    function isSafeLinkUrl(url){ if(!url||typeof url!=="string") return false; if(url.startsWith('blob:')||url.startsWith('file://')) return true; if(url.startsWith('data:application/pdf')) return true; return /^https?:\/\//i.test(url); }
+
+    // ==== データ ====
+    const SPOTS = [
+      { id: 1,  title: "歩車道境界の連続段差（夜間）",  lat: 36.5629208, lng: 139.8815989, images: ["https://live.staticflickr.com/65535/55049430913_b9a82311c6_w.jpg","https://live.staticflickr.com/65535/55065220986_155325c54b_w.jpg"], description: "写真では歩車道境界の縁石が連続し、切り下げが無い（または不十分）区間が確認できる。夜間は路面の明暗差が大きく段差の視認性が低下。車いす・ベビーカーは単独通行が難しく、同伴者がいても前輪が引っかかり姿勢が不安定になりやすい。縁石の連続切り下げ、面取り、端部への高視認舗装・路面照明の追加が望ましい。", tags: ["段差","歩車道境界","夜間"], icon: "blue" },
+      { id: 3,  title: "舗装継目の不陸と縦断勾配",  lat: 36.5630705, lng: 139.8810689, images: ["https://live.staticflickr.com/65535/55048353817_1ea70ee004_w.jpg","https://live.staticflickr.com/65535/55065471614_a10d18f3a6_w.jpg"], description: "写真では舗装継目の不陸・小段差に加えて、区間的に縦断傾斜が見られる。片側車輪だけが段差を越えやすく進路が取られ、勾配と組み合わさることで制動時や低速通過時の姿勢が不安定になりやすい。雨天時は水溜まりで段差が見えにくく、滑りと振動が同時に発生する恐れ。既設継目の段差充填・研磨による平坦化、必要に応じてパッチ部の打ち替え、勾配がきつい箇所には粗度改善と代替の緩勾配ルート案内を推奨。", tags: ["不陸","段差","傾斜"], icon: "blue" },
+      { id: 4,  title: "植栽と高い縁石の歩道",  lat: 36.5633147, lng: 139.8810682, images: ["https://live.staticflickr.com/65535/55066731620_3f38b89259_w.jpg","https://live.staticflickr.com/65535/55065578610_e8f152935a_w.jpg"], description: "写真では、沿道の植栽（生垣・低木）の張り出しにより有効通行幅が狭くなっており、車いすやベビーカー利用時に上半身・ハンドリムが干渉する恐れがある。夜間は枝葉の影で視認性が低下し、歩行者同士のすれ違いも困難になりやすい。剪定・後退配置（管理境界の見直し）と連続切り下げ・緩斜面スロープの整備、植栽端部の高視認舗装や配光の改善を推奨。", tags: ["段差","歩車道境界","植栽"], icon: "blue" },
+      { id: 5,  title: "エレベーターかご寸法不足",  lat: 36.5632964, lng: 139.8816798, images: ["https://live.staticflickr.com/65535/55049598845_1c1854bd1a_w.jpg","https://live.staticflickr.com/65535/55065221061_45e7ec949a_w.jpg"], description: "写真では出入口に近接するエレベーターのかご内が狭く、車いすが奥まで入りきらない（回転や前後移動の余裕がない）状況が確認できる。開口部の有効幅やかご内寸、操作盤位置が適合しておらず、同伴者の介助があっても乗降に時間と労力を要する。対策としては、開口部の拡幅・かご増床（改修が困難な場合は代替動線の明示）、操作盤の高さ・位置改善、エレベータ前の待機スペース確保と案内サインの強化を推奨。", tags: ["段差","入口"], icon: "blue" },
+      { id: 6,  title: "歩道への復帰ポイント不足",  lat: 36.5631184, lng: 139.8815262, images: ["https://live.staticflickr.com/65535/55048353872_9a6701eac7_w.jpg","https://live.staticflickr.com/65535/55064321822_0dcdcf85fc_w.jpg"], description: "通路の舗装継目やパッチ補修部に段差・不整が連続。前輪が取られやすく進路がぶれやすい。傾斜や雨天時には滑りと組み合わさり転倒リスクが増す。段差充填・研磨と平滑性確保、必要に応じて表面テクスチャの更新を推奨。", tags: ["不陸","段差"], icon: "blue" },
+      { id: 7,  title: "連続縁石でアクセス阻害",  lat: 36.5628214, lng: 139.8810548, images: ["https://live.staticflickr.com/65535/55048353882_108ee08373_w.jpg"], description: "車道から歩道に戻る地点が限られ、縁石段差が相対的に高い。結果として車道走行の区間が伸び、交通安全上のリスクが増加。横断可能箇所の追加切り下げと連続的なバリアフリー動線の形成が必要。", tags: ["段差","歩車道境界"], icon: "blue" },
+      { id: 8,  title: "連続縁石で乗入れ困難",  lat: 36.5624910, lng: 139.8809619, images: ["https://live.staticflickr.com/65535/55049257231_01e806be99_w.jpg","https://live.staticflickr.com/65535/55065221081_8cefb1ee6d_w.jpg"], description: "縁石段差が区間的に連続し、乗り入れポイントの探索が困難。商業施設・河川沿い動線へのアクセスが阻害される。複数箇所での切り下げ新設、角部の緩斜面化、段差端部の視認性向上（配色・タイル）を推奨。", tags: ["段差"], icon: "blue" },
+      { id: 9,  title: "階段のみの出入口（夜間視認性低）",  lat: 36.5625346, lng: 139.8797281, images: ["https://live.staticflickr.com/65535/55049442513_94fc3d205e_w.jpg","https://live.staticflickr.com/65535/55064321847_e099562fe5_w.jpg"], description: "写真は出入口に複数段の階段が連続しており、スロープ等の代替動線が見当たらない状況を示す。車いすでは単独通行が不可能で、介助があっても前輪が段鼻に引っかかりやすい。タイルは濡れると滑りやすく、段鼻の視認性も低い。夜間は照明自体はあるが、水平面照度が中心で段鼻の陰影が強く、段差の把握が遅れる恐れがある。バリアフリー基準に沿った緩勾配スロープの新設（または仮設スロープの設置可能性の検討）、段鼻の滑り止め・視認性向上（ノンスリップ／コントラストテープ）、近傍の段差解消ルートの案内サイン整備を推奨。", tags: ["階段","入口","段差","夜間"], icon: "blue" },
+      { id: 10, title: "急勾配の通路区間", lat: 36.5626321, lng: 139.8794824, images: ["https://live.staticflickr.com/65535/55063546214_ffa37d9b93_w.jpg","https://live.staticflickr.com/65535/55065578715_9a652d9b11_w.jpg"], description: "縦断勾配が急で発進・停止時に後退しやすい。段差・不陸と組み合わさると転倒リスクが高まる。手すりや途中休憩スペースの確保、粗度改善、より緩勾配の代替ルート案内の整備が有効。", tags: ["傾斜"], icon: "blue" },
+      { id: 11, title: "複合バリア（境界・不陸・敷居）", lat: 36.5625903, lng: 139.8792208, images: ["https://live.staticflickr.com/65535/55049514484_4e892382e9_w.jpg","https://live.staticflickr.com/65535/55065145885_07e6716e30_w.jpg"], description: "歩車道境界・舗装の不陸・敷居段差が近接して存在している。複合要因で通行が阻害されるため、個別の段差解消と平坦化、導線の明確化、夜間の視認性改善を段階的に実施したい。", tags: [], icon: "blue" },
+    ];
+
+    function validateSpots(spots){ const errors=[],warnings=[]; if(!Array.isArray(spots)) errors.push('SPOTS が配列ではありません'); const seen=new Set(); spots.forEach((s,i)=>{ if(typeof s!=="object"||s===null) errors.push(`index ${i}: オブジェクトではありません`); for(const k of ['id','title','lat','lng','description']) if(!(k in s)) errors.push(`index ${i}: ${k} がありません`); if(seen.has(s.id)) errors.push(`index ${i}: id=${s.id} が重複`); seen.add(s.id); if(!Number.isFinite(s.lat)||!Number.isFinite(s.lng)) errors.push(`index ${i}: lat/lng が数値ではありません`); if(s.tags && !Array.isArray(s.tags)) warnings.push(`index ${i}: tags は配列推奨`); if(Array.isArray(s.tags) && !s.tags.every(t=>typeof t==='string')) warnings.push(`index ${i}: tags 配列の要素は文字列推奨`); if(!Array.isArray(s.images)) warnings.push(`index ${i}: images は配列推奨`); if(typeof s.description!=="string"||!s.description.trim()) errors.push(`index ${i}: description が不正`); }); return { ok: errors.length===0, errors, warnings }; }
+    function isImageUrl(url){ if(!url||typeof url!=="string") return false; if(url.startsWith('blob:')) return true; if(url.startsWith('data:image/')) return true; return /(^file:\/\/.*\.(png|jpe?g|gif|webp|avif|bmp|svg)$|\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?|#|$))/i.test(url); }
+    function imagesOf(s){ return Array.isArray(s.images)? s.images.filter(Boolean) : []; }
+    function placeholderSvg(text){ return 'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="100%" height="100%" fill="#e5ecff"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#334" font-size="16">${esc(text)}</text></svg>`); }
+
+    let selectedId = null; // リストで選択中の地点
+
+    // === ここから：文字列連結ではなく DOM を構築してポップアップを生成（Unexpected token/Invalid string 対策） ===
+    function displaySpotName(spot){ return '地点' + (SPOTS.indexOf(spot) + 1); }
+    function makePopupContent(spot){
+      const root = document.createElement('div');
+      root.className = 'popup';
+
+      const grid = document.createElement('div');
+      grid.className = 'imgGrid';
+      const imgs = imagesOf(spot);
+      const ph = placeholderSvg('画像を読み込めませんでした');
+      const canDelete = selectedId === spot.id;
+
+      imgs.forEach((u, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'imgWrap';
+
+        if (isImageUrl(u)){
+          const img = document.createElement('img');
+          img.setAttribute('loading','lazy');
+          img.setAttribute('alt', spot && spot.title ? spot.title : '');
+          img.setAttribute('referrerpolicy','no-referrer');
+          img.src = u;
+          img.onerror = () => { img.onerror=null; img.src = ph; try{ const note=document.createElement('div'); note.style.fontSize='.8rem'; note.style.color='#722'; note.style.marginTop='4px'; const a=document.createElement('a'); a.href = u; a.target = '_blank'; a.rel='noopener noreferrer'; a.textContent = '画像の取得に失敗しました（URLを開く）'; const btn=document.createElement('button'); btn.textContent='再読み込み'; btn.style.marginLeft='6px'; btn.style.fontSize='.8rem'; btn.addEventListener('click',()=>{ img.src = u + (u.includes('?')?'&':'?') + 't=' + Date.now(); note.remove(); }); note.appendChild(a); note.appendChild(btn); wrap.appendChild(note);}catch(_){} };
+          wrap.appendChild(img);
+        } else if (isSafeLinkUrl(u)){
+          const div = document.createElement('div');
+          div.style.marginBottom = '.5rem';
+          const a = document.createElement('a');
+          a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer nofollow';
+          a.style.textDecoration = 'underline';
+          a.textContent = '添付を開く（PDF/外部ファイル）';
+          div.appendChild(a);
+          wrap.appendChild(div);
+        } else {
+          const div = document.createElement('div');
+          div.className = 'desc';
+          div.textContent = 'リンクが無効です：' + String(u||'');
+          wrap.appendChild(div);
+        }
+
+        if (canDelete){
+          const del = document.createElement('button');
+          del.className = 'imgDel';
+          del.setAttribute('data-del', `${spot.id}:${idx}`);
+          del.setAttribute('aria-label','この画像を削除');
+          del.textContent = '🗑 削除';
+          wrap.appendChild(del);
+        }
+        grid.appendChild(wrap);
+      });
+
+      const h3 = document.createElement('h3');
+      h3.textContent = displaySpotName(spot);
+      const desc = document.createElement('div');
+      desc.className = 'desc';
+      desc.textContent = String(spot.description||'');
+
+      root.appendChild(grid);
+      root.appendChild(h3);
+      root.appendChild(desc);
+
+      if (spot.tags && spot.tags.length){
+        const tags = document.createElement('div');
+        tags.style.marginTop = '.5rem';
+        tags.style.fontSize = '.8rem';
+        tags.style.color = '#334';
+        tags.textContent = 'タグ：' + spot.tags.join(', ');
+        root.appendChild(tags);
+      }
+      return root;
+    }
+
+    // 画像削除のコア処理
+    function removeImageCore(id, idx){
+      const spot = SPOTS.find(s=>s.id===id); if(!spot) return false;
+      const arr = imagesOf(spot); if(idx<0 || idx>=arr.length) return false;
+      arr.splice(idx,1);
+      spot.images = arr; // 0枚でも配列を維持（UI一貫性）
+      return true;
+    }
+
+    // ===== ライトボックス =====
+    const lightbox = { el:null, img:null, open(src){ this.img.src = src; this.el.classList.add('show'); }, close(){ this.el.classList.remove('show'); this.img.src=''; } };
+
+    (async function init(){
+      try{ await loadExternalLibs(); }catch(e){ console.error(e); showBannerText('ライブラリの読み込みに失敗 '+(e.message||e), true); return; }
+
+      lightbox.el = document.getElementById('lightbox');
+      lightbox.img = document.getElementById('lightboxImg');
+      lightbox.el.addEventListener('click', () => lightbox.close());
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') lightbox.close(); });
+
+      const map = L.map('map', { zoomControl: true });
+      // ローカルHTMLでも403にならない地理院タイルを使用。OSMサーバーへは接続しない。
+      const pale = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', {
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>', maxZoom: 18, maxNativeZoom: 18
+      });
+      const standard = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>', maxZoom: 18, maxNativeZoom: 18
+      });
+      let tileFailureNotice = false;
+      for (const layer of [pale,standard]) {
+        layer.on('tileerror',()=>{
+          if (tileFailureNotice) return;
+          tileFailureNotice=true;
+          showBannerText('背景地図を読み込めません。ChatGPT内のプレビューでは外部画像が制限される場合があります。右上のダウンロードからHTMLを保存し、Edgeで直接開いてください。',true);
+        });
+      }
+      pale.addTo(map);
+      L.control.layers({ '淡色地図（元の地図に近い色）': pale, '標準地図（文字が見やすい）': standard }, null, {position:'topright', collapsed:true}).addTo(map);
+      if (L.Control && L.Control.Geocoder){ L.Control.geocoder({ defaultMarkGeocode:false, placeholder:'場所検索' }).on('markgeocode', e=>map.fitBounds(e.geocode.bbox)).addTo(map); }
+
+      const cluster = (USE_CLUSTER && L.markerClusterGroup) ? L.markerClusterGroup() : null;
+      // ピン画像はHTML内に埋め込み、外部サーバーへのアクセスを不要にする
+      function pinSvg(color){
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="46" viewBox="0 0 30 46"><path d="M15 1C7 1 2 7 2 15c0 11 13 29 13 29S28 26 28 15C28 7 23 1 15 1Z" fill="${color}" stroke="#ffffff" stroke-width="2"/><circle cx="15" cy="15" r="5.3" fill="#fff"/></svg>`;
+        return L.icon({iconUrl:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg),iconSize:[30,46],iconAnchor:[15,44],popupAnchor:[0,-39]});
+      }
+      const ICONS = {red:pinSvg('#d74c53'),blue:pinSvg('#2c8dd2'),green:pinSvg('#32a778')};
+
+      const markersById = new Map();
+      const listEl = document.getElementById('spotList');
+
+      function addSpotToUIAndMap(spot){
+        const icon = ICONS[spot.icon] || ICONS.blue;
+        const marker = L.marker([spot.lat, spot.lng], { icon }).bindPopup(makePopupContent(spot));
+        marker.on('click', () => selectListItem(spot.id));
+        if (cluster){ cluster.addLayer(marker); } else { marker.addTo(map); }
+        markersById.set(spot.id, marker);
+
+        const item = document.createElement('div');
+        item.className = 'card';
+        item.dataset.id = spot.id;
+        const h3 = document.createElement('h3'); h3.textContent = displaySpotName(spot);
+        const p  = document.createElement('p');  p.textContent  = (spot.tags||[]).join(' / ');
+        item.appendChild(h3); item.appendChild(p);
+        item.addEventListener('click', () => { map.setView([spot.lat, spot.lng], 17); marker.openPopup(); highlightCard(spot.id); selectListItem(spot.id); });
+        listEl.appendChild(item);
+      }
+
+      function refreshMarkerPopup(id){ const m = markersById.get(id); if (m){ m.setPopupContent(makePopupContent(SPOTS.find(s=>s.id===id))); } }
+
+      SPOTS.forEach(addSpotToUIAndMap);
+      if (cluster) map.addLayer(cluster);
+      if (SPOTS.length){ const b = L.latLngBounds(SPOTS.map(s=>[s.lat,s.lng])); map.fitBounds(b.pad(0.2)); } else { map.setView([35.6812, 139.7671], 12); }
+
+      document.getElementById('fitBtn').addEventListener('click', () => { if (!SPOTS.length) return; const b = L.latLngBounds(SPOTS.map(s=>[s.lat,s.lng])); map.fitBounds(b.pad(0.2)); });
+      document.getElementById('toggleListBtn').addEventListener('click', () => { document.getElementById('app').classList.toggle('list-closed'); requestAnimationFrame(()=>{map.invalidateSize();setTimeout(()=>map.invalidateSize(),200);}); });
+      document.body.addEventListener('click', (e) => { const img = e.target.closest('.popup img'); if (img) lightbox.open(img.currentSrc || img.src); });
+
+      document.getElementById('searchBox').addEventListener('input', e => {
+        const q = e.target.value.trim().toLowerCase();
+        for (const card of listEl.children) {
+          const s = SPOTS.find(x => x.id === Number(card.dataset.id));
+          card.style.display = s && [s.title, s.description, ...(s.tags||[])].join(' ').toLowerCase().includes(q) ? '' : 'none';
+        }
+      });
+
+      // === 画像の削除ボタン（イベント委譲） ===
+      document.body.addEventListener('click', (e)=>{
+        const btn = e.target.closest('.imgDel');
+        if (!btn) return;
+        const [idStr, idxStr] = (btn.dataset.del||'').split(':');
+        const id = +idStr, idx = +idxStr;
+        if (!Number.isFinite(id) || !Number.isFinite(idx)) return;
+        if (!confirm('この画像を削除しますか？')) return;
+        if (removeImageCore(id, idx)){
+          refreshMarkerPopup(id);
+          showBannerText('写真を削除しました');
+        }
+      });
+
+      // ==== 写真追加（EXIFから自動配置 / 手動配置） ====
+      const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.multiple = true; document.body.appendChild(fileInput); fileInput.style.display='none'; document.getElementById('addPhotosBtn').addEventListener('click', () => fileInput.click());
+
+      function nextId(){ return Math.max(0,...SPOTS.map(s=>s.id||0),...pending.map(s=>s.id||0)) + 1; }
+      async function readGPSFromExif(file){ if (!window.exifr) return null; try{ const o = await exifr.gps(file); if (o && Number.isFinite(o.latitude) && Number.isFinite(o.longitude)) return {lat:o.latitude, lng:o.longitude}; }catch(_){ } return null; }
+      const pending = []; const blobUrlToFile = new Map(); (function(){ const _c=URL.createObjectURL; URL.createObjectURL=function(obj){ const u=_c.call(URL,obj); try{ if (obj instanceof File && String(obj.type||'').startsWith('image/')) blobUrlToFile.set(u,obj);}catch(_){} return u; }; })();
+
+      fileInput.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files||[]); if(!files.length) return;
+        if (selectedId != null){
+          const spot = SPOTS.find(s=>s.id===selectedId);
+          if (spot){ spot.images = imagesOf(spot); for (const f of files){ const url = URL.createObjectURL(f); spot.images.push(url);} refreshMarkerPopup(spot.id); showBannerText('選択中の地点に写真を追加しました'); }
+        } else {
+          for (const f of files){ const gps = await readGPSFromExif(f); const url = URL.createObjectURL(f); const spot = { id: nextId(), title: f.name.replace(/\.[^.]+$/, ''), lat: gps?gps.lat:null, lng: gps?gps.lng:null, images: [url], description:'', tags:['写真'], icon:'blue' }; if (spot.lat==null || spot.lng==null) pending.push(spot); else { SPOTS.push(spot); addSpotToUIAndMap(spot); } }
+          if (pending.length) showBannerText('地図をクリック：位置情報のない写真があります。クリックで順に配置します。', true);
+        }
+      });
+      map.on('click', (e)=>{ if(!pending.length) return; const s=pending.shift(); s.lat=e.latlng.lat; s.lng=e.latlng.lng; SPOTS.push(s); addSpotToUIAndMap(s); if(!pending.length) showBannerText('配置完了'); });
+
+      // ==== 保存/読込/出力 ====
+      const LS_KEY = 'photo-map-spots';
+      document.getElementById('saveBtn').addEventListener('click', async () => {
+        try{
+          // 追加直後の写真は blob:URL のままなので、保存前に dataURL へ埋め込み変換
+          const cloned = await embedImagesInSpots(SPOTS, blobUrlToFile);
+          localStorage.setItem(LS_KEY, JSON.stringify(cloned));
+          showBannerText('保存しました（画像を埋め込み変換）');
+        }catch(e){
+          showBannerText('保存に失敗 '+(e.message||e), true);
+        }
+      });
+      document.getElementById('loadBtn').addEventListener('click', () => { try{ const raw=localStorage.getItem(LS_KEY); if(!raw) return showBannerText('データなし', true); const arr=JSON.parse(raw); if(!Array.isArray(arr)) throw new Error('フォーマット不正'); document.getElementById('spotList').innerHTML=''; if(cluster) cluster.clearLayers(); else markersById.forEach(m=>map.removeLayer(m)); markersById.clear(); SPOTS.length=0; arr.forEach(s=>SPOTS.push(s)); SPOTS.forEach(addSpotToUIAndMap); if(SPOTS.length){ const b=L.latLngBounds(SPOTS.map(s=>[s.lat,s.lng])); map.fitBounds(b.pad(0.2)); } showBannerText('読込完了'); }catch(e){ showBannerText('読込に失敗 '+(e.message||e), true); } });
+      document.getElementById('exportJsonBtn').addEventListener('click', () => { const blob=new Blob([JSON.stringify(SPOTS,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='バリアフリーマップ.json'; a.click(); URL.revokeObjectURL(url); });
+      document.getElementById('exportStandaloneBtn').addEventListener('click', async () => { try{ const cloned=await embedImagesInSpots(SPOTS); const html=buildStandaloneHtml(cloned); const blob=new Blob([html],{type:'text/html;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='バリアフリーマップ.html'; a.click(); URL.revokeObjectURL(url); showBannerText('共有用HTMLを出力しました'); }catch(e){ showBannerText('共有用HTMLの作成に失敗 '+(e.message||e), true); } });
+
+      // ===== GitHub Pages 反映 =====
+      document.getElementById('publishBtn').addEventListener('click', publishToGitHubPages);
+
+      function highlightCard(id){ const items=Array.from(document.getElementById('spotList').children); items.forEach(el=>el.style.outline='none'); const el=items.find(el=>+el.dataset.id===+id); if(el) el.style.outline='2px solid #3b4ea1'; }
+      function selectListItem(id){ selectedId = id; highlightCard(id); const m = markersById.get(id); if (m && m.getPopup()) { m.setPopupContent(makePopupContent(SPOTS.find(s=>s.id===id))); } }
+
+      // ==== テスト（$1/$2 のプレースホルダ除去に伴い明示的に配置）====
+      (function runTests(){
+        const v = validateSpots(SPOTS);
+        console.assert(v.ok, 'SPOTS は有効であるべき', v);
+        // 画像配列が必ず配列
+        console.assert(SPOTS.every(s=>Array.isArray(s.images)), '全地点が images 配列を持つべき');
+        // id 一意 & id=2 は削除済み
+        const ids = new Set(SPOTS.map(s=>s.id));
+        console.assert(ids.size === SPOTS.length, 'ID は一意');
+        console.assert(!SPOTS.some(s=>s.id===2), '地点2は削除されているべき');
+        // すべての要素がオブジェクトである（裸の文字列が無い）
+        console.assert(SPOTS.every(s=>s && typeof s==='object' && !Array.isArray(s)), '各要素はオブジェクト');
+        // ポップアップの DOM を安全に生成できる
+        SPOTS.forEach(s=>{
+          const node = makePopupContent(s);
+          console.assert(node && node.nodeType === 1 && node.className.includes('popup'), 'popup dom');
+        });
+        // JSON stringify（Unexpected string/<' 対策）
+        const json = JSON.stringify(SPOTS);
+        console.assert(typeof json === 'string' && /"id"\s*:\s*10/.test(json), 'json stringify ok');
+        // removeImageCore の健全性
+        const tmp={id:999,title:'t',lat:0,lng:0,images:['a.jpg','b.jpg'],description:'d'}; SPOTS.push(tmp);
+        console.assert(removeImageCore(999,1)===true,'remove ok');
+        console.assert(tmp.images.length===1 && tmp.images[0]==='a.jpg','1枚残る');
+        console.assert(removeImageCore(999,0)===true && tmp.images.length===0,'0枚になる');
+        SPOTS.pop();
+        // 追加テスト：地点3の画像が2枚でURL文字列である
+        const s3 = SPOTS.find(s=>s.id===3);
+        console.assert(!!s3 && Array.isArray(s3.images) && s3.images.length===2, '地点3は2枚の画像を持つべき');
+        console.assert(s3.images.every(u=>typeof u==='string'), '地点3の画像URLは文字列であるべき');
+        // 追加テスト：地点4の検証（存在・画像2枚・タグに植栽を含む）
+        const s4 = SPOTS.find(s=>s.id===4);
+        console.assert(!!s4 && s4.images.length===2, '地点4は2枚の画像を持つべき');
+        console.assert((s4.tags||[]).includes('植栽'), '地点4タグに植栽を含むべき');
+        // 追加テスト：置換プレースホルダが残っていない
+        const raw = JSON.stringify(SPOTS);
+        console.assert(!/(\$1|\$2|\$3)/.test(raw), '置換プレースホルダは残っていないべき');
+        console.assert(!SPOTS.some(s=>[12,13,14].includes(s.id)), '地点12〜14は含まれていない');
+        // 追加テスト：スタンドアロンHTML（外側）は <script> を含まない（document.write対策）
+        const htmlSample = buildStandaloneHtml([{id:1,title:'t',lat:0,lng:0,images:[],description:''}]);
+        console.assert(!(/<script/i.test(htmlSample)), '外側HTMLは<script>を使わない');
+        // 追加テスト：生成HTMLが </body></html> で正しく閉じている
+        console.assert(/<\/body>\s*<\/html>\s*$/.test(htmlSample), 'standalone html ends with </body></html>');
+        // 追加テスト：外側HTMLに単一引用符が含まれない（document.write('...') 安全）
+        console.assert(!/'/.test(htmlSample), '外側HTMLに単一引用符を含めない');
+        // 追加テスト：SPOTS ラウンドトリップ
+        const parsed = JSON.parse(JSON.stringify(SPOTS));
+        console.assert(Array.isArray(parsed) && parsed.length===SPOTS.length, 'SPOTS round-trip OK');
+        // 追加テスト：地点5がオブジェクトであり、画像配列を2枚保持
+        const s5 = SPOTS.find(s=>s.id===5);
+        console.assert(!!s5 && typeof s5==='object' && Array.isArray(s5.images) && s5.images.length===2, '地点5は2枚の画像を持つオブジェクト');
+      })();
+    })();
+
+    async function fileToDataUrl(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
+    async function embedImagesInSpots(spots, blobUrlToFile){ const cloned=JSON.parse(JSON.stringify(spots)); for(const s of cloned){ if(Array.isArray(s.images)){ for(let i=0;i<s.images.length;i++){ const u=s.images[i]; if(typeof u==='string' && u.startsWith('blob:')){ const f=blobUrlToFile?.get(u); if(f) s.images[i]=await fileToDataUrl(f); } } } } return cloned; }
+
+    function buildStandaloneHtml(spots){
+      const clone = document.documentElement.cloneNode(true);
+      // ポップアップや入力状態に依存せず、現時点の地点情報を保存
+      const scripts = clone.querySelectorAll('script');
+      const main = Array.from(scripts).find(s => s.textContent.includes('const SPOTS = ['));
+      if (!main) throw new Error('元データが見つかりません');
+      const safeData = JSON.stringify(spots).replace(/</g,'\\u003c');
+      main.textContent = main.textContent.replace(/const SPOTS = \[.*?\];/s, 'const SPOTS = ' + safeData + ';');
+      // エクスポート時のテストは、ユーザーが地点を追加・削除した後にも邪魔しないようにする
+      main.textContent = main.textContent.replace(/\(function runTests\(\)\{[\s\S]*?\}\)\(\);/, '');
+      const savedList=clone.querySelector('#spotList'); if(savedList) savedList.replaceChildren();
+      const savedMap=clone.querySelector('#map'); if(savedMap) savedMap.replaceChildren();
+      return '<!doctype html>\n' + clone.outerHTML;
+    }
+
+    function toBase64Unicode(str){ const bytes=new TextEncoder().encode(str); let bin=''; for(let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]); return btoa(bin); }
+    async function githubGetFileSha({owner, repo, path, branch, token}){ const res=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`,{ headers:{ 'Accept':'application/vnd.github+json','Authorization':`Bearer ${token}` }}); if(res.status===404) return null; if(!res.ok) throw new Error('現在のファイル取得に失敗: '+res.status); const json=await res.json(); return json.sha||null; }
+    async function githubPutFile({owner, repo, path, branch, token, content, message, sha}){ const body={ message, content, branch }; if(sha) body.sha=sha; const res=await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,{ method:'PUT', headers:{ 'Accept':'application/vnd.github+json','Authorization':`Bearer ${token}` }, body: JSON.stringify(body) }); if(!res.ok){ const txt=await res.text(); throw new Error('アップロード失敗: '+res.status+' '+txt); } return res.json(); }
+    async function publishToGitHubPages(){ try{ const LS_KEY_CFG='ghPublishCfg'; let cfg={}; try{ cfg=JSON.parse(localStorage.getItem(LS_KEY_CFG)||'{}'); }catch(_){ cfg={}; } if(!cfg.owner) cfg.owner=prompt('GitHub ユーザー/Org 名', cfg.owner||''); if(!cfg.repo) cfg.repo=prompt('リポジトリ名', cfg.repo||''); if(!cfg.branch) cfg.branch=prompt('ブランチ名', cfg.branch||'main'); if(!cfg.path) cfg.path=prompt('配置パス（通常 index.html）', cfg.path||'index.html'); if(!cfg.token) cfg.token=prompt('PAT（contents:write）', cfg.token||''); if(!cfg.owner||!cfg.repo||!cfg.branch||!cfg.path||!cfg.token){ showBannerText('公開設定が未入力', true); return; } localStorage.setItem(LS_KEY_CFG, JSON.stringify({...cfg,token:''})); showBannerText('公開用HTML生成中...'); const html=buildStandaloneHtml(SPOTS); const b64=toBase64Unicode(html); showBannerText('GitHubにアップロード中...'); const sha=await githubGetFileSha({owner:cfg.owner, repo:cfg.repo, path:cfg.path, branch:cfg.branch, token:cfg.token}); await githubPutFile({owner:cfg.owner, repo:cfg.repo, path:cfg.path, branch:cfg.branch, token:cfg.token, content:b64, message:'Update map (auto publish)', sha}); const url=`https://${cfg.owner}.github.io/${cfg.repo}/`+(cfg.path==='index.html'?'':cfg.path); showBannerLink('公開に反映しました', url); }catch(e){ console.error(e); showBannerText('公開に失敗 '+(e.message||e), true); } }
+  </script>
+</body>
+</html>
